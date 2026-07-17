@@ -1,0 +1,46 @@
+# Python/runtime cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environments and local machine files
+.env
+.venv/
+venv/
+env/
+*.log
+
+# Raw/generated data
+/data/
+/temp/
+/src/data/raw/
+/src/data/raw_data/
+/src/output/
+
+# Local backbone/model cache
+/deepseek-ai/
+
+# Experiment outputs and saved artifacts
+/versions/*/outputs/
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+events.out.tfevents*
+
+# Result spreadsheets are local experiment notes, not code
+/versions/*.xlsx
+
+# Third-party nested repository kept locally only
+/RecBole/
+
+# Large generated tokenizer/checkpoint artifacts, in case they are copied elsewhere
+tokenizer.json
+tokenizer.model
+*.msgpack
+*.h5
