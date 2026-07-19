@@ -41,6 +41,7 @@ def auc_score(logits, labels):
 def main():
     parser = argparse.ArgumentParser(description='Train a linear utility predictor and report predictability metrics.')
     parser.add_argument('--cache_path', required=True)
+    parser.add_argument('--valid_cache', default=None, help='Independent calibration-valid cache.')
     parser.add_argument('--output_json', default=None)
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--lr', type=float, default=1e-2)
@@ -53,17 +54,30 @@ def main():
     x = cache['features'].float()
     y = cache['utility_label'].float()
     n = x.size(0)
-    perm = torch.randperm(n)
-    cut = max(1, int(n * 0.8))
-    train_idx, valid_idx = perm[:cut], perm[cut:]
-    if valid_idx.numel() == 0:
-        valid_idx = train_idx
+    if args.valid_cache:
+        valid_cache = load_cache(args.valid_cache)
+        if cache.get('dataset') != valid_cache.get('dataset'):
+            raise ValueError('Training and validation utility caches use different datasets.')
+        if 'user_ids' in cache and 'user_ids' in valid_cache:
+            overlap = set(cache['user_ids'].tolist()).intersection(valid_cache['user_ids'].tolist())
+            if overlap:
+                raise ValueError(f'Utility analysis user leakage: {len(overlap)} overlapping users.')
+        x_train, y_train = x, y
+        x_valid = valid_cache['features'].float()
+        y_valid = valid_cache['utility_label'].float()
+    else:
+        perm = torch.randperm(n)
+        cut = max(1, int(n * 0.8))
+        train_idx, valid_idx = perm[:cut], perm[cut:]
+        if valid_idx.numel() == 0:
+            valid_idx = train_idx
+        x_train, y_train = x[train_idx], y[train_idx]
+        x_valid, y_valid = x[valid_idx], y[valid_idx]
+        print('WARNING: no --valid_cache supplied; using a sample-level diagnostic split.')
 
-    scaler = FeatureStandardizer().fit(x[train_idx])
-    x_train = scaler.transform(x[train_idx])
-    x_valid = scaler.transform(x[valid_idx])
-    y_train = y[train_idx]
-    y_valid = y[valid_idx]
+    scaler = FeatureStandardizer().fit(x_train)
+    x_train = scaler.transform(x_train)
+    x_valid = scaler.transform(x_valid)
 
     model = torch.nn.Linear(x.size(1), 1)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -80,6 +94,7 @@ def main():
             'dataset': cache.get('dataset'),
             'split': cache.get('split'),
             'num_samples': int(n),
+            'num_valid_samples': int(y_valid.numel()),
             'positive_rate': y.mean().item(),
             'auc': auc_score(valid_logits, y_valid.long()),
             **binary_metrics(valid_logits, y_valid.long()),

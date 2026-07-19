@@ -25,8 +25,6 @@ def main():
     parser.add_argument('--cache_path', required=True)
     parser.add_argument('--fuser_path', required=True)
     parser.add_argument('--output_json', default=None)
-    parser.add_argument('--hidden_dim', type=int, default=32)
-    parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--alpha_max', type=float, default=None)
     parser.add_argument('--alpha_step', type=float, default=0.1)
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
@@ -45,7 +43,14 @@ def main():
     grid = torch.arange(0.0, grid_max + args.alpha_step / 2, args.alpha_step).tolist()
     alpha_scores, best_alpha = oracle_alpha_scores(text, ids, labels, grid, temp)
 
-    fuser, scaler, payload = load_fuser(args.fuser_path, hidden_dim=args.hidden_dim, dropout=args.dropout, map_location=args.device)
+    fuser, scaler, payload = load_fuser(args.fuser_path, map_location=args.device)
+    if payload['feature_names'] != cache['feature_names']:
+        raise ValueError('Cache feature schema does not match the fuser checkpoint.')
+    if payload['dataset'] != cache.get('dataset'):
+        raise ValueError(
+            f'Fuser dataset {payload["dataset"]!r} does not match cache dataset '
+            f'{cache.get("dataset")!r}.'
+        )
     device = torch.device(args.device)
     fuser.to(device).eval()
     features = scaler.transform(cache['features']).to(device)

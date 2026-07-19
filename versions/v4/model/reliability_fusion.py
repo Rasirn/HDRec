@@ -42,8 +42,10 @@ class ContextGate(nn.Module):
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1),
-            nn.Tanh(),
         )
+        self.input_dim = int(input_dim)
+        self.hidden_dim = int(hidden_dim)
+        self.dropout = float(dropout)
 
     def forward(self, features):
         return self.net(features.float()).squeeze(-1)
@@ -57,41 +59,78 @@ class ReliabilityFuser(nn.Module):
         self.alpha_max = float(alpha_max)
         self.rho = float(rho)
 
+    def gate_logit(self, features):
+        return self.gate(features)
+
+    def utility_probability(self, features):
+        return torch.sigmoid(self.gate_logit(features))
+
     def alpha(self, features):
-        delta = self.gate(features)
+        utility_prob = self.utility_probability(features)
+        delta = 2.0 * utility_prob - 1.0
         return torch.clamp(self.alpha0 + self.rho * delta, min=0.0, max=self.alpha_max)
 
-    def forward(self, logits_text, id_residual, features):
-        alpha = self.alpha(features)
+    def forward(self, logits_text, id_residual, features, dynamic_fusion=True, return_gate_logit=False):
+        if dynamic_fusion:
+            gate_logit = self.gate_logit(features)
+            utility_prob = torch.sigmoid(gate_logit)
+            alpha = torch.clamp(
+                self.alpha0 + self.rho * (2.0 * utility_prob - 1.0),
+                min=0.0,
+                max=self.alpha_max,
+            )
+        else:
+            gate_logit = None
+            alpha = logits_text.new_full((logits_text.size(0),), self.alpha0)
         final_logits = logits_text + alpha.unsqueeze(-1) * id_residual
+        if return_gate_logit:
+            return final_logits, alpha, gate_logit
         return final_logits, alpha
 
 
-def save_fuser(path, fuser, standardizer, feature_names, extra=None):
+def save_fuser(path, fuser, standardizer, feature_names, dataset, seed, extra=None):
     payload = {
-        'model_state': fuser.state_dict(),
-        'standardizer': standardizer.state_dict(),
+        'model_state_dict': fuser.state_dict(),
+        'normalization_state': standardizer.state_dict(),
         'feature_names': list(feature_names),
-        'input_dim': len(feature_names),
+        'input_dim': fuser.gate.input_dim,
+        'hidden_dim': fuser.gate.hidden_dim,
+        'dropout': fuser.gate.dropout,
         'alpha0': fuser.alpha0,
         'alpha_max': fuser.alpha_max,
         'rho': fuser.rho,
+        'dataset': dataset,
+        'seed': int(seed),
         'extra': extra or {},
     }
     torch.save(payload, path)
 
 
-def load_fuser(path, hidden_dim=32, dropout=0.0, map_location='cpu'):
+def load_fuser(path, map_location='cpu'):
     payload = torch.load(path, map_location=map_location)
+    required = {
+        'model_state_dict', 'input_dim', 'hidden_dim', 'dropout', 'alpha0',
+        'alpha_max', 'rho', 'feature_names', 'normalization_state', 'dataset', 'seed',
+    }
+    missing = sorted(required.difference(payload))
+    if missing:
+        raise ValueError(f'Invalid fuser checkpoint {path}; missing fields: {missing}')
+    if payload['input_dim'] != len(payload['feature_names']):
+        raise ValueError('Fuser checkpoint input_dim does not match feature_names.')
     fuser = ReliabilityFuser(
         input_dim=payload['input_dim'],
-        hidden_dim=hidden_dim,
-        dropout=dropout,
+        hidden_dim=payload['hidden_dim'],
+        dropout=payload['dropout'],
         alpha0=payload['alpha0'],
         alpha_max=payload['alpha_max'],
         rho=payload['rho'],
     )
-    fuser.load_state_dict(payload['model_state'])
+    incompatible = fuser.load_state_dict(payload['model_state_dict'], strict=True)
+    if incompatible.missing_keys or incompatible.unexpected_keys:
+        raise RuntimeError(
+            f'Fuser state mismatch; missing={incompatible.missing_keys}, '
+            f'unexpected={incompatible.unexpected_keys}'
+        )
     standardizer = FeatureStandardizer()
-    standardizer.load_state_dict(payload['standardizer'])
+    standardizer.load_state_dict(payload['normalization_state'])
     return fuser, standardizer, payload

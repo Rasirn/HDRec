@@ -20,12 +20,30 @@ def cross_entropy_per_sample(logits, labels):
     return F.cross_entropy(logits.float(), labels.long(), reduction='none')
 
 
-def utility_values(logits_text, logits_id, labels, temperature=1.0):
+def utility_values(logits_text, logits_id, labels, alpha0=0.5, temperature=1.0):
     residual = id_confidence_residual(logits_id, temperature=temperature)
     text_loss = cross_entropy_per_sample(logits_text, labels)
-    residual_loss = cross_entropy_per_sample(logits_text + residual, labels)
-    return text_loss - residual_loss
+    fused_loss = cross_entropy_per_sample(logits_text + float(alpha0) * residual, labels)
+    return text_loss - fused_loss
 
 
-def utility_labels(logits_text, logits_id, labels, temperature=1.0):
-    return (utility_values(logits_text, logits_id, labels, temperature=temperature) > 0).long()
+def utility_labels(logits_text, logits_id, labels, alpha0=0.5, temperature=1.0):
+    utility = utility_values(
+        logits_text,
+        logits_id,
+        labels,
+        alpha0=alpha0,
+        temperature=temperature,
+    )
+    return (utility > 0).long()
+
+
+def utility_statistics(utility):
+    utility = utility.float()
+    positive_ratio = (utility > 0).float().mean().item()
+    return {
+        'positive_ratio': positive_ratio,
+        'negative_ratio': 1.0 - positive_ratio,
+        'mean_utility': utility.mean().item(),
+        'std_utility': utility.std(unbiased=False).item(),
+    }

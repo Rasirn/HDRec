@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from common import add_common_cache_args, build_loader, default_cache_path, load_frozen_v1, move_batch
 from reliability_features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION, compute_sequence_features, history_pop_stats, item_popularity_from_train
-from utility_label import fixed_text_fusion, id_confidence_residual, utility_labels, utility_values, cross_entropy_per_sample
+from utility_label import fixed_text_fusion, utility_labels, utility_statistics, utility_values, cross_entropy_per_sample
 
 
 def history_for_user(dataset, user_id, split):
@@ -68,8 +68,20 @@ def main():
             fixed_logits = fixed_text_fusion(logits_text.cpu(), logits_id.cpu(), alpha=v1_args.fusion_alpha, temperature=v1_args.fusion_temperature)
             text_loss = cross_entropy_per_sample(logits_text.cpu(), labels.cpu())
             fixed_loss = cross_entropy_per_sample(fixed_logits, labels.cpu())
-            utility = utility_values(logits_text.cpu(), logits_id.cpu(), labels.cpu(), temperature=v1_args.fusion_temperature)
-            util_label = utility_labels(logits_text.cpu(), logits_id.cpu(), labels.cpu(), temperature=v1_args.fusion_temperature)
+            utility = utility_values(
+                logits_text.cpu(),
+                logits_id.cpu(),
+                labels.cpu(),
+                alpha0=v1_args.fusion_alpha,
+                temperature=v1_args.fusion_temperature,
+            )
+            util_label = utility_labels(
+                logits_text.cpu(),
+                logits_id.cpu(),
+                labels.cpu(),
+                alpha0=v1_args.fusion_alpha,
+                temperature=v1_args.fusion_temperature,
+            )
 
             all_text.append(logits_text.cpu())
             all_id.append(logits_id.cpu())
@@ -95,8 +107,9 @@ def main():
         'dataset': args.dataset,
         'split': args.split,
         'seed': args.seed,
-        'checkpoint_path': str(args.checkpoint_path or 'auto:v1'),
+        'checkpoint_path': v1_args.loaded_checkpoint_path,
         'alpha0': float(v1_args.fusion_alpha),
+        'utility_alpha0': float(v1_args.fusion_alpha),
         'fusion_temperature': float(v1_args.fusion_temperature),
         'logits_text': torch.cat(all_text, dim=0),
         'logits_id': torch.cat(all_id, dim=0),
@@ -113,8 +126,10 @@ def main():
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, out_path)
+    stats = utility_statistics(payload['utility'])
     print(f'Saved cache: {out_path}')
     print(f'Samples: {payload["labels"].numel()}, items: {payload["logits_text"].size(-1)}')
+    print(f'Utility statistics at alpha0={payload["alpha0"]}: {stats}')
 
 
 if __name__ == '__main__':

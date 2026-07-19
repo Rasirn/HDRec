@@ -144,7 +144,19 @@ def add_common_cache_args(parser):
 
 def infer_checkpoint_path(dataset, model_name_or_path, suffix='v1'):
     model_prefix = model_name_or_path.replace('/', '-')
-    return ROOT / 'versions' / 'v1' / 'outputs' / dataset / f'{model_prefix}_{suffix}' / 'pytorch_model.bin'
+    output_root = ROOT / 'versions' / 'v1' / 'outputs' / dataset
+    exact = output_root / f'{model_prefix}_{suffix}' / 'pytorch_model.bin'
+    if exact.exists():
+        return exact
+    candidates = sorted(output_root.glob(f'{model_prefix}_*/pytorch_model.bin'))
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        return exact
+    raise RuntimeError(
+        f'Multiple v1 checkpoints found for {dataset}; pass --checkpoint_path explicitly: '
+        f'{[str(path) for path in candidates]}'
+    )
 
 
 def load_frozen_v1(cli_args):
@@ -156,9 +168,23 @@ def load_frozen_v1(cli_args):
     if not checkpoint_path.exists():
         raise FileNotFoundError(f'v1 checkpoint not found: {checkpoint_path}')
     state = torch.load(checkpoint_path, map_location='cpu')
+    if not isinstance(state, dict):
+        raise TypeError(f'v1 checkpoint must contain a state dict: {checkpoint_path}')
     info = model.load_state_dict(state, strict=False)
-    print(f'Loaded frozen v1 checkpoint: {checkpoint_path}')
-    print(f'Load info: {info}')
+    model_config = getattr(model, 'config', None)
+    config_name = getattr(model_config, '_name_or_path', cli_args.model_name_or_path)
+    print(f'Checkpoint path: {checkpoint_path.resolve()}')
+    print(f'Model class: {model.__class__.__module__}.{model.__class__.__name__}')
+    print(f'Model config: {config_name}')
+    print(f'Missing keys: {info.missing_keys}')
+    print(f'Unexpected keys: {info.unexpected_keys}')
+    if info.missing_keys or info.unexpected_keys:
+        raise RuntimeError(
+            'Frozen v1 checkpoint is incompatible with the constructed model; '
+            f'missing={info.missing_keys}, unexpected={info.unexpected_keys}'
+        )
+    args.loaded_checkpoint_path = str(checkpoint_path.resolve())
+    print('Frozen v1 checkpoint loaded with an exact key match.')
     model.to(args.device)
     model.eval()
     for p in model.parameters():

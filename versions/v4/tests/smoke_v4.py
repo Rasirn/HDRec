@@ -58,8 +58,8 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / 'fuser.pt'
-        save_fuser(path, fuser, scaler, FEATURE_NAMES, extra={'smoke': True})
-        loaded, loaded_scaler, payload = load_fuser(path, hidden_dim=4, dropout=0.0)
+        save_fuser(path, fuser, scaler, FEATURE_NAMES, dataset='synthetic', seed=7, extra={'smoke': True})
+        loaded, loaded_scaler, payload = load_fuser(path)
         loaded_final, loaded_alpha = loaded(text, residual, loaded_scaler.transform(features))
         assert torch.equal(loaded_final, text)
         assert payload['extra']['smoke'] is True

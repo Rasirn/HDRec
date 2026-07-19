@@ -13,10 +13,11 @@ z_final = z_text + alpha_u * r_id
 第一阶段只实现序列级动态权重：
 
 ```text
-alpha_u = clamp(alpha0 + rho * DeltaAlpha_u, 0, alpha_max)
+utility_prob = sigmoid(gate_logit)
+alpha_u = clamp(alpha0 + rho * (2 * utility_prob - 1), 0, alpha_max)
 ```
 
-其中 `DeltaAlpha_u` 由轻量 Context Gate 根据可靠性特征预测。
+其中同一个 `gate_logit` 同时接受 utility BCE 监督并生成动态 alpha。未训练 gate 的中性输出对应 `alpha0`，便于回退到 v1 固定融合附近。
 
 ## 安全原则
 
@@ -35,14 +36,24 @@ python versions/v4/scripts/cache_fusion_data.py --help
 # 2. Oracle 诊断
 python versions/v4/scripts/analyze_oracle.py --help
 
-# 3. Utility 可预测性诊断
+# 3. 将 validation cache 按用户拆成 calibration train/valid
+python versions/v4/scripts/split_calibration.py --help
+
+# 4. Utility 可预测性诊断
 python versions/v4/scripts/analyze_reliability.py --help
 
-# 4. 训练 Context Gate
+# 5. 训练 Context Gate
 python versions/v4/scripts/train_fuser.py --help
 
-# 5. 评估 v4
+# 6. 评估 v4
 python versions/v4/scripts/evaluate_v4.py --help
+```
+
+Industrial 256 样本 smoke 使用 GPU 7，并放入 detached screen：
+
+```bash
+screen -L -Logfile /data/lgd/HDRec/versions/v4/logs/industrial_smoke.log \
+  -dmS hdrec_v4_smoke bash /data/lgd/HDRec/versions/v4/scripts/run_industrial_smoke.sh
 ```
 
 ## 开发记录
