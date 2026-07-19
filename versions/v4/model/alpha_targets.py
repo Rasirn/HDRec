@@ -63,6 +63,20 @@ def soft_targets(ce_per_alpha, dcg10_per_alpha, reciprocal_rank_per_alpha, tau_c
 
 def compute_alpha_outcomes(logits_text, logits_id, labels, alpha_grid, fusion_temperature,
                            device='cpu', chunk_size=256):
+    residual_chunks = []
+    for start in range(0, labels.numel(), chunk_size):
+        end = min(start + chunk_size, labels.numel())
+        residual_chunks.append(id_confidence_residual(
+            logits_id[start:end].float(), temperature=fusion_temperature
+        ).cpu())
+    residual = torch.cat(residual_chunks, dim=0)
+    return compute_alpha_outcomes_from_residual(
+        logits_text, residual, labels, alpha_grid, device=device, chunk_size=chunk_size
+    )
+
+
+def compute_alpha_outcomes_from_residual(logits_text, residual, labels, alpha_grid,
+                                         device='cpu', chunk_size=256):
     n = labels.numel()
     num_alpha = alpha_grid.numel()
     outcomes = {
@@ -82,11 +96,10 @@ def compute_alpha_outcomes(logits_text, logits_id, labels, alpha_grid, fusion_te
     for start in range(0, n, chunk_size):
         end = min(start + chunk_size, n)
         text = logits_text[start:end].float().to(compute_device)
-        ids = logits_id[start:end].float().to(compute_device)
+        residual_chunk = residual[start:end].float().to(compute_device)
         target = labels[start:end].long().to(compute_device)
-        residual = id_confidence_residual(ids, temperature=fusion_temperature)
         for alpha_index, alpha in enumerate(grid_device):
-            scores = text + alpha * residual
+            scores = text + alpha * residual_chunk
             ce = F.cross_entropy(scores, target, reduction='none')
             rank_zero_based = target_ranks(scores, target)
             reciprocal_rank = 1.0 / (rank_zero_based + 1.0)

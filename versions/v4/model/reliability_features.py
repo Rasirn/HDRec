@@ -16,6 +16,19 @@ FEATURE_NAMES = [
     'text_id_score_corr',
 ]
 
+RESIDUAL_SCALE_SCHEMA_VERSION = 'v4_residual_scale_v1'
+RESIDUAL_SCALE_FEATURE_NAMES = [
+    'text_logit_mean', 'text_logit_std', 'text_logit_rms', 'text_logit_range',
+    'id_logit_mean', 'id_logit_std', 'id_logit_rms', 'id_logit_range',
+    'residual_mean', 'residual_std', 'residual_rms', 'residual_max',
+    'residual_range', 'residual_l1_mean', 'residual_l2_norm',
+    'residual_to_text_std_ratio', 'residual_to_text_rms_ratio',
+    'id_to_text_std_ratio', 'residual_top10_mass_ratio',
+    'residual_top50_mass_ratio', 'residual_top100_mass_ratio',
+    'residual_normalized_entropy', 'residual_effective_support',
+    'residual_concentration',
+]
+
 
 def _safe_probs(logits):
     return F.softmax(logits.float(), dim=-1).clamp_min(1e-12)
@@ -105,6 +118,47 @@ def compute_sequence_features(
         rowwise_corr(logits_text, logits_id),
     ]
     return sanitize_features(torch.stack(cols, dim=-1))
+
+
+def compute_residual_scale_features(logits_text, logits_id, residual, eps=1e-8):
+    text = logits_text.float()
+    ids = logits_id.float()
+    residual = residual.float()
+
+    def stats(values):
+        mean = values.mean(dim=-1)
+        std = values.std(dim=-1, unbiased=False)
+        rms = values.square().mean(dim=-1).sqrt()
+        value_range = values.max(dim=-1).values - values.min(dim=-1).values
+        return mean, std, rms, value_range
+
+    text_mean, text_std, text_rms, text_range = stats(text)
+    id_mean, id_std, id_rms, id_range = stats(ids)
+    residual_mean, residual_std, residual_rms, residual_range = stats(residual)
+    mass = residual.abs()
+    mass_sum = mass.sum(dim=-1).clamp_min(eps)
+
+    def top_mass_ratio(k):
+        k = min(k, mass.size(-1))
+        return torch.topk(mass, k=k, dim=-1).values.sum(dim=-1) / mass_sum
+
+    probs = mass / mass_sum.unsqueeze(-1)
+    entropy = -(probs * probs.clamp_min(eps).log()).sum(dim=-1)
+    normalized_entropy = entropy / max(float(torch.log(torch.tensor(float(mass.size(-1))))), eps)
+    effective_support = entropy.exp() / mass.size(-1)
+    concentration = probs.square().sum(dim=-1)
+    columns = [
+        text_mean, text_std, text_rms, text_range,
+        id_mean, id_std, id_rms, id_range,
+        residual_mean, residual_std, residual_rms, residual.max(dim=-1).values,
+        residual_range, mass.mean(dim=-1), residual.norm(dim=-1),
+        residual_std / text_std.clamp_min(eps),
+        residual_rms / text_rms.clamp_min(eps),
+        id_std / text_std.clamp_min(eps),
+        top_mass_ratio(10), top_mass_ratio(50), top_mass_ratio(100),
+        normalized_entropy, effective_support, concentration,
+    ]
+    return sanitize_features(torch.stack(columns, dim=-1))
 
 
 def item_popularity_from_train(user2train, item_num):
