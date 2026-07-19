@@ -46,6 +46,8 @@ class ContextGate(nn.Module):
         self.input_dim = int(input_dim)
         self.hidden_dim = int(hidden_dim)
         self.dropout = float(dropout)
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
 
     def forward(self, features):
         return self.net(features.float()).squeeze(-1)
@@ -88,11 +90,24 @@ class ReliabilityFuser(nn.Module):
         return final_logits, alpha
 
 
-def save_fuser(path, fuser, standardizer, feature_names, dataset, seed, extra=None):
+def save_fuser(
+    path,
+    fuser,
+    standardizer,
+    feature_names,
+    dataset,
+    seed,
+    feature_schema,
+    base_checkpoint_path,
+    fusion_temperature,
+    utility_target,
+    extra=None,
+):
     payload = {
         'model_state_dict': fuser.state_dict(),
         'normalization_state': standardizer.state_dict(),
         'feature_names': list(feature_names),
+        'feature_schema': feature_schema,
         'input_dim': fuser.gate.input_dim,
         'hidden_dim': fuser.gate.hidden_dim,
         'dropout': fuser.gate.dropout,
@@ -101,6 +116,9 @@ def save_fuser(path, fuser, standardizer, feature_names, dataset, seed, extra=No
         'rho': fuser.rho,
         'dataset': dataset,
         'seed': int(seed),
+        'base_checkpoint_path': str(base_checkpoint_path),
+        'fusion_temperature': float(fusion_temperature),
+        'utility_target': utility_target,
         'extra': extra or {},
     }
     torch.save(payload, path)
@@ -110,7 +128,8 @@ def load_fuser(path, map_location='cpu'):
     payload = torch.load(path, map_location=map_location)
     required = {
         'model_state_dict', 'input_dim', 'hidden_dim', 'dropout', 'alpha0',
-        'alpha_max', 'rho', 'feature_names', 'normalization_state', 'dataset', 'seed',
+        'alpha_max', 'rho', 'feature_names', 'feature_schema', 'normalization_state',
+        'dataset', 'seed', 'base_checkpoint_path', 'fusion_temperature', 'utility_target',
     }
     missing = sorted(required.difference(payload))
     if missing:

@@ -58,7 +58,19 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / 'fuser.pt'
-        save_fuser(path, fuser, scaler, FEATURE_NAMES, dataset='synthetic', seed=7, extra={'smoke': True})
+        save_fuser(
+            path,
+            fuser,
+            scaler,
+            FEATURE_NAMES,
+            dataset='synthetic',
+            seed=7,
+            feature_schema='smoke',
+            base_checkpoint_path='/tmp/base.bin',
+            fusion_temperature=1.0,
+            utility_target='ce_at_alpha0',
+            extra={'smoke': True},
+        )
         loaded, loaded_scaler, payload = load_fuser(path)
         loaded_final, loaded_alpha = loaded(text, residual, loaded_scaler.transform(features))
         assert torch.equal(loaded_final, text)
@@ -73,11 +85,15 @@ def main():
             'split': 'valid',
             'alpha0': 0.5,
             'fusion_temperature': 1.0,
+            'checkpoint_path': '/tmp/base.bin',
+            'utility_target': 'ce_at_alpha0',
             'logits_text': text,
             'logits_id': ids,
             'labels': labels,
             'features': features,
             'utility_label': labels_u,
+            'utility_ce_label': labels_u,
+            'utility_rank_label': labels_u,
         }
         torch.save(payload_cache, cache_path)
         loaded_cache = torch.load(cache_path, map_location='cpu')

@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from common import load_cache, save_json
 from analyze_reliability import auc_score, binary_metrics
+from cache_compatibility import validate_cache_compatibility
 from ranking_metrics import ranking_metrics, summarize_alpha
 from reliability_fusion import FeatureStandardizer, ReliabilityFuser, save_fuser
 from utility_label import id_confidence_residual
@@ -21,11 +22,15 @@ def evaluate_fuser(fuser, scaler, cache, temperature, device):
     with torch.no_grad():
         final, alpha, gate_logit = fuser(text, residual, features, return_gate_logit=True)
         metrics = ranking_metrics(final.cpu(), labels.cpu())
-        metrics.update(summarize_alpha(alpha.cpu()))
-        metrics['loss'] = F.cross_entropy(final.float(), labels).item()
-        utility_labels = cache['utility_label'].long()
-        metrics['utility_auc'] = auc_score(gate_logit.cpu(), utility_labels)
-        metrics.update({f'utility_{key}': value for key, value in binary_metrics(gate_logit.cpu(), utility_labels).items()})
+        metrics.update(summarize_alpha(alpha.cpu(), alpha_max=fuser.alpha_max))
+        metrics['valid_cross_entropy'] = F.cross_entropy(final.float(), labels).item()
+        ce_labels = cache['utility_ce_label'].long()
+        rank_labels = cache['utility_rank_label'].long()
+        metrics['valid_utility_ce_auc'] = auc_score(gate_logit.cpu(), ce_labels)
+        metrics['valid_utility_rank_auc'] = auc_score(gate_logit.cpu(), rank_labels)
+        metrics['valid_NDCG@10'] = metrics['NDCG@10']
+        metrics['valid_Recall@10'] = metrics['Recall@10']
+        metrics.update({f'valid_utility_ce_{key}': value for key, value in binary_metrics(gate_logit.cpu(), ce_labels).items()})
     return metrics
 
 
@@ -34,19 +39,6 @@ def gradient_norm(grads):
     if not finite_grads:
         return 0.0
     return torch.sqrt(sum((g * g).sum() for g in finite_grads)).item()
-
-
-def validate_cache_pair(train, valid, train_path, valid_path):
-    if Path(train_path).resolve() == Path(valid_path).resolve():
-        raise ValueError('train_cache and valid_cache must be different files.')
-    if train.get('dataset') != valid.get('dataset'):
-        raise ValueError('Training and validation caches belong to different datasets.')
-    if train.get('feature_names') != valid.get('feature_names'):
-        raise ValueError('Training and validation feature schemas differ.')
-    if 'user_ids' in train and 'user_ids' in valid:
-        overlap = set(train['user_ids'].tolist()).intersection(valid['user_ids'].tolist())
-        if overlap:
-            raise ValueError(f'Calibration user leakage detected: {len(overlap)} overlapping users.')
 
 
 def main():
@@ -74,7 +66,7 @@ def main():
     device = torch.device(args.device)
     train = load_cache(args.train_cache)
     valid = load_cache(args.valid_cache)
-    validate_cache_pair(train, valid, args.train_cache, args.valid_cache)
+    validate_cache_compatibility(train, valid, args.train_cache, args.valid_cache)
     feature_names = train['feature_names']
     temperature = float(train.get('fusion_temperature', 1.0))
     alpha0 = float(args.alpha0 if args.alpha0 is not None else train.get('alpha0', 0.5))
@@ -90,7 +82,7 @@ def main():
     text = train['logits_text'].float().to(device)
     ids = train['logits_id'].float().to(device)
     labels = train['labels'].long().to(device)
-    utility = train['utility_label'].float().to(device)
+    utility = train['utility_ce_label'].float().to(device)
     residual = id_confidence_residual(ids, temperature=temperature)
 
     fuser = ReliabilityFuser(
@@ -114,6 +106,9 @@ def main():
         fuser.train()
         perm = torch.randperm(n, device=device)
         total_loss = 0.0
+        total_rank_loss = 0.0
+        total_utility_loss = 0.0
+        total_shrink_loss = 0.0
         utility_grad_norm = 0.0
         gate_grad_norm = 0.0
         for start in range(0, n, args.batch_size):
@@ -139,10 +134,16 @@ def main():
                 gate_grad_norm = gradient_norm([p.grad for p in fuser.gate.parameters()])
             opt.step()
             total_loss += loss.item() * idx.numel()
+            total_rank_loss += rank_loss.item() * idx.numel()
+            total_utility_loss += util_loss.item() * idx.numel()
+            total_shrink_loss += shrink_loss.item() * idx.numel()
 
         metrics = evaluate_fuser(fuser, scaler, valid, temperature, device)
         metrics['epoch'] = epoch + 1
-        metrics['train_loss'] = total_loss / n
+        metrics['train_total_loss'] = total_loss / n
+        metrics['train_rank_loss'] = total_rank_loss / n
+        metrics['train_utility_loss'] = total_utility_loss / n
+        metrics['train_shrink_loss'] = total_shrink_loss / n
         metrics['grad(alpha_gate)'] = gate_grad_norm
         metrics['grad(utility_loss -> gate)'] = utility_grad_norm
         history.append(metrics)
@@ -159,6 +160,10 @@ def main():
                 feature_names,
                 dataset=train.get('dataset'),
                 seed=args.seed,
+                feature_schema=train['feature_schema'],
+                base_checkpoint_path=train['checkpoint_path'],
+                fusion_temperature=temperature,
+                utility_target=train['utility_target'],
                 extra={
                     'temperature': temperature,
                     'train_cache': args.train_cache,

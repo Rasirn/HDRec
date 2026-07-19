@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 
+from ranking_metrics import target_ranks
+
 
 def id_confidence_residual(logits_id, temperature=1.0):
     """Residual used by v1 confidence_fusion when fusion_type='text'."""
@@ -46,4 +48,24 @@ def utility_statistics(utility):
         'negative_ratio': 1.0 - positive_ratio,
         'mean_utility': utility.mean().item(),
         'std_utility': utility.std(unbiased=False).item(),
+    }
+
+
+def rank_utility_values(logits_text, logits_id, labels, alpha0=0.5, temperature=1.0):
+    fixed_logits = fixed_text_fusion(
+        logits_text,
+        logits_id,
+        alpha=alpha0,
+        temperature=temperature,
+    )
+    text_rank = target_ranks(logits_text.float(), labels.long())
+    fixed_rank = target_ranks(fixed_logits.float(), labels.long())
+    return text_rank - fixed_rank
+
+
+def rank_utility_labels(rank_gain):
+    return {
+        'utility_rank_label': (rank_gain > 0).long(),
+        'utility_rank_harm': (rank_gain < 0).long(),
+        'utility_rank_tie': (rank_gain == 0).long(),
     }

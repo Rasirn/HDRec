@@ -17,10 +17,10 @@ def ranking_metrics(scores, labels, ks=(1, 5, 10, 20, 50)):
     return out
 
 
-def summarize_alpha(alpha):
+def summarize_alpha(alpha, alpha_max=None):
     alpha = alpha.float()
     qs = torch.quantile(alpha, torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9], device=alpha.device))
-    return {
+    summary = {
         'alpha_mean': alpha.mean().item(),
         'alpha_std': alpha.std(unbiased=False).item(),
         'alpha_min': alpha.min().item(),
@@ -31,3 +31,7 @@ def summarize_alpha(alpha):
         'alpha_p75': qs[3].item(),
         'alpha_p90': qs[4].item(),
     }
+    if alpha_max is not None:
+        summary['alpha_floor_rate'] = (alpha <= 1e-6).float().mean().item()
+        summary['alpha_ceiling_rate'] = (alpha >= float(alpha_max) - 1e-6).float().mean().item()
+    return summary

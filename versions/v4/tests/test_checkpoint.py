@@ -21,6 +21,10 @@ def test_checkpoint_restores_structure_schema_and_parameters(tmp_path: Path):
         FEATURE_NAMES,
         dataset='Industrial_and_Scientific',
         seed=17,
+        feature_schema='schema-v2',
+        base_checkpoint_path='/tmp/v1.bin',
+        fusion_temperature=1.0,
+        utility_target='ce_at_alpha0',
     )
 
     loaded, loaded_scaler, payload = load_fuser(checkpoint)
@@ -31,6 +35,10 @@ def test_checkpoint_restores_structure_schema_and_parameters(tmp_path: Path):
     assert payload['feature_names'] == FEATURE_NAMES
     assert payload['dataset'] == 'Industrial_and_Scientific'
     assert payload['seed'] == 17
+    assert payload['feature_schema'] == 'schema-v2'
+    assert payload['base_checkpoint_path'] == '/tmp/v1.bin'
+    assert payload['fusion_temperature'] == 1.0
+    assert payload['utility_target'] == 'ce_at_alpha0'
     for key, value in fuser.state_dict().items():
         assert torch.equal(value, loaded.state_dict()[key])
     assert torch.equal(scaler.mean, loaded_scaler.mean)

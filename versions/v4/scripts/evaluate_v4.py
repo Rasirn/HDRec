@@ -5,6 +5,7 @@ import torch
 
 from analyze_oracle import oracle_alpha_scores, oracle_select_scores
 from common import load_cache, save_json
+from cache_compatibility import validate_fuser_cache_compatibility
 from ranking_metrics import ranking_metrics, summarize_alpha, target_ranks
 from reliability_fusion import load_fuser
 from utility_label import fixed_text_fusion, id_confidence_residual
@@ -44,13 +45,7 @@ def main():
     alpha_scores, best_alpha = oracle_alpha_scores(text, ids, labels, grid, temp)
 
     fuser, scaler, payload = load_fuser(args.fuser_path, map_location=args.device)
-    if payload['feature_names'] != cache['feature_names']:
-        raise ValueError('Cache feature schema does not match the fuser checkpoint.')
-    if payload['dataset'] != cache.get('dataset'):
-        raise ValueError(
-            f'Fuser dataset {payload["dataset"]!r} does not match cache dataset '
-            f'{cache.get("dataset")!r}.'
-        )
+    validate_fuser_cache_compatibility(payload, cache)
     device = torch.device(args.device)
     fuser.to(device).eval()
     features = scaler.transform(cache['features']).to(device)
