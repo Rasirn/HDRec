@@ -3,7 +3,7 @@ import inspect
 import torch
 
 from analyze_residual_calibration import choose_train_configs
-from paired_bootstrap import paired_bootstrap
+from paired_bootstrap import bootstrap_evidence, paired_bootstrap
 from reliability_features import (
     FEATURE_NAMES,
     RESIDUAL_SCALE_FEATURE_NAMES,
@@ -72,3 +72,12 @@ def test_paired_bootstrap_is_seed_reproducible():
     first = paired_bootstrap(differences, num_samples=100, seed=42)
     second = paired_bootstrap(differences, num_samples=100, seed=42)
     assert first == second
+
+
+def test_bootstrap_evidence_requires_low_ci_for_strong_evidence():
+    crossing = {'mean_difference': 0.01, 'ci95_low': -0.02, 'probability_improvement_gt_zero': 0.95}
+    strong = {'mean_difference': 0.01, 'ci95_low': 0.001, 'probability_improvement_gt_zero': 0.99}
+    negative = {'mean_difference': -0.01, 'ci95_low': -0.02, 'probability_improvement_gt_zero': 0.95}
+    assert bootstrap_evidence(crossing) == 'weak_positive'
+    assert bootstrap_evidence(strong) == 'strong'
+    assert bootstrap_evidence(negative) == 'none'
