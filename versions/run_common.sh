@@ -162,6 +162,8 @@ case "${VERSION_ID}" in
       --flylora_output_mix "${FLYLORA_OUTPUT_MIX}"
     )
     ;;
+  v4)
+    ;;
   *)
     echo "Unsupported VERSION_ID=${VERSION_ID}" >&2
     exit 1

@@ -25,6 +25,8 @@ env/
 
 # Experiment outputs and saved artifacts
 /versions/*/outputs/
+/versions/*/results/
+/versions/*/logs/
 *.bin
 *.pt
 *.pth
