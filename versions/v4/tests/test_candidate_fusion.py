@@ -1,5 +1,6 @@
 import inspect
 
+import pytest
 import torch
 
 from candidate_features import (
@@ -13,6 +14,7 @@ from candidate_gate import CandidateFeatureNormalizer, CandidateGate, candidate_
 from candidate_policies import policy_gate
 from candidate_gate_common import split_gate_users
 from train_candidate_gate import select_architecture_config
+from train_final_candidate_gate import merge_calibration_caches
 from utility_label import fixed_text_fusion
 
 
@@ -111,3 +113,29 @@ def test_only_candidate_gate_parameters_receive_gradients():
     torch.nn.functional.cross_entropy(final, torch.tensor([1, 3])).backward()
     assert all(parameter.grad is not None for parameter in model.parameters())
     assert frozen_text.grad is None and frozen_residual.grad is None
+
+
+def test_final_calibration_merge_is_user_disjoint_and_concatenates_samples():
+    common = {
+        'dataset': 'Industrial_and_Scientific', 'feature_schema': 'schema',
+        'logits_text': torch.randn(2, 4), 'labels': torch.tensor([0, 1]),
+    }
+    train = {**common, 'user_ids': torch.tensor([1, 2]), 'split': 'calibration_train'}
+    valid = {
+        **common, 'logits_text': torch.randn(1, 4), 'labels': torch.tensor([2]),
+        'user_ids': torch.tensor([3]), 'split': 'calibration_valid',
+    }
+    merged = merge_calibration_caches(train, valid)
+    assert merged['split'] == 'final_fuser_train'
+    assert merged['labels'].tolist() == [0, 1, 2]
+    assert merged['user_ids'].tolist() == [1, 2, 3]
+
+
+def test_final_calibration_merge_rejects_user_overlap():
+    train = {
+        'dataset': 'Industrial_and_Scientific', 'feature_schema': 'schema',
+        'labels': torch.tensor([0]), 'user_ids': torch.tensor([7]),
+    }
+    valid = {**train, 'labels': torch.tensor([1])}
+    with pytest.raises(ValueError, match='overlap'):
+        merge_calibration_caches(train, valid)
