@@ -15,6 +15,8 @@ from candidate_policies import policy_gate
 from candidate_gate_common import split_gate_users
 from train_candidate_gate import select_architecture_config
 from train_final_candidate_gate import merge_calibration_caches
+from analyze_candidate_policies import evaluate_frozen_configs, evaluate_policy_grid
+from ranking_metrics import target_ranks
 from utility_label import fixed_text_fusion
 
 
@@ -139,3 +141,22 @@ def test_final_calibration_merge_rejects_user_overlap():
     valid = {**train, 'labels': torch.tensor([1])}
     with pytest.raises(ValueError, match='overlap'):
         merge_calibration_caches(train, valid)
+
+
+def test_candidate_policy_uses_dataset_alpha0_and_frozen_alpha_only():
+    cache = {
+        'logits_text': torch.tensor([[1.0, 0.6, 0.0]]),
+        'logits_id': torch.tensor([[0.0, 1.0, -1.0]]),
+        'labels': torch.tensor([0]),
+        'fusion_temperature': 1.0,
+        'alpha0': 0.7,
+    }
+    config = {'policy': 'P2_id_topk', 'k': 2, 'key': 'p2', 'max_alpha': 0.25}
+    _, _, fixed_ranks = evaluate_policy_grid(cache, [config], [0.25], 1, 'cpu')
+    expected = target_ranks(fixed_text_fusion(
+        cache['logits_text'], cache['logits_id'], alpha=0.7, temperature=1.0,
+    ), cache['labels'])
+    assert torch.equal(fixed_ranks, expected)
+    frozen_ranks, _, _ = evaluate_frozen_configs(cache, [config], 1, 'cpu')
+    grid_ranks, _, _ = evaluate_policy_grid(cache, [config], [0.25], 1, 'cpu')
+    assert torch.equal(frozen_ranks[:, 0], grid_ranks[:, 0, 0])

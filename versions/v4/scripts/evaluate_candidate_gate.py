@@ -55,7 +55,7 @@ def main():
     parser.add_argument('--valid_cache', required=True)
     parser.add_argument('--training_summary', required=True)
     parser.add_argument('--policy_results', required=True)
-    parser.add_argument('--residual_results', required=True)
+    parser.add_argument('--residual_results', default=None)
     parser.add_argument('--data_root', default='./data')
     parser.add_argument('--output_json', required=True)
     parser.add_argument('--batch_size', type=int, default=16)
@@ -66,7 +66,8 @@ def main():
     train, valid = load_cache(args.train_cache), load_cache(args.valid_cache)
     if set(train['user_ids'].tolist()).intersection(valid['user_ids'].tolist()):
         raise ValueError('Independent calibration-valid users overlap calibration-train.')
-    summary, policy, residual = load_json(args.training_summary), load_json(args.policy_results), load_json(args.residual_results)
+    summary, policy = load_json(args.training_summary), load_json(args.policy_results)
+    residual = load_json(args.residual_results) if args.residual_results else None
     if summary['dataset'] != valid['dataset'] or valid['split'] != 'calibration_valid':
         raise ValueError('Candidate checkpoint dataset/split mismatch.')
     popularity = load_item_popularity(args.data_root, valid['dataset'], valid['logits_text'].size(1)).to(args.device)
@@ -136,16 +137,17 @@ def main():
         'selected_architecture_on_gate_dev': selected_name,
         'text_only': policy['text_only_valid'], 'v1_fixed': fixed,
         'raw_best_global_alpha_zero': policy['text_only_valid'],
-        'r5_calibrated_alpha_point_one': residual['best_calibrated_valid'],
         'best_candidate_rule': policy['best_candidate_rule_valid'],
         'candidate_gates': evaluations,
         'constrained_candidate_policy_oracle': policy['constrained_candidate_policy_oracle_valid'],
-        'raw_sequence_oracle_alpha': residual['raw_oracle_valid'],
         'group_analysis': groups, 'positive_group_dimensions': positive_dimensions,
         'selected_gate_not_collapsed': not_collapsed,
         'go': go, 'strong_go': strong_go,
         'decision': 'Strong Go' if strong_go else ('Go' if go else 'No-Go'),
     }
+    if residual is not None:
+        result['r5_calibrated_alpha_point_one'] = residual['best_calibrated_valid']
+        result['raw_sequence_oracle_alpha'] = residual['raw_oracle_valid']
     save_json(args.output_json, result)
     print({
         'selected_architecture': selected_name, 'selected_gate': selected,

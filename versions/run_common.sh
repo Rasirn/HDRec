@@ -14,7 +14,7 @@ DATASET=${1:-Industrial_and_Scientific}
 MODEL=${2:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}
 SUFFIX=${3:-${DEFAULT_SUFFIX}}
 
-export CUDA_VISIBLE_DEVICES="${GPU_IDS:-6}"
+export CUDA_VISIBLE_DEVICES="${GPU_IDS:-0}"
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 case "${DATASET}" in

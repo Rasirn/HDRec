@@ -72,7 +72,9 @@ def evaluate_policy_grid(cache, configs, alpha_grid, batch_size, device):
         text_rank, id_rank = rank_positions(text), rank_positions(ids)
         text_prob, id_prob = F.softmax(text, -1), F.softmax(ids, -1)
         text_ranks[start:end] = target_ranks_for_scores(text, labels).cpu()
-        fixed_ranks[start:end] = target_ranks_for_scores(text + 0.5 * residual, labels).cpu()
+        fixed_ranks[start:end] = target_ranks_for_scores(
+            text + float(cache['alpha0']) * residual, labels
+        ).cpu()
         for config_index, config in enumerate(configs):
             gate = policy_gate(config, text_rank, id_rank, text_prob, id_prob)
             scores = text.unsqueeze(0) + alpha * gate.unsqueeze(0) * residual.unsqueeze(0)
@@ -114,11 +116,28 @@ def frozen_config_list(selected_by_config):
 
 
 def evaluate_frozen_configs(cache, configs, batch_size, device):
-    alpha_grid = [float(config['max_alpha']) for config in configs]
-    # Each mask has one frozen alpha; evaluate together then take the diagonal.
-    ranks_cube, text_ranks, fixed_ranks = evaluate_policy_grid(cache, configs, alpha_grid, batch_size, device)
-    diagonal = torch.stack([ranks_cube[:, index, index] for index in range(len(configs))], dim=-1)
-    return diagonal, text_ranks, fixed_ranks
+    n = cache['labels'].numel()
+    all_ranks = torch.empty(n, len(configs), dtype=torch.float32)
+    text_ranks = torch.empty(n, dtype=torch.float32)
+    fixed_ranks = torch.empty(n, dtype=torch.float32)
+    temperature = float(cache['fusion_temperature'])
+    for start in range(0, n, batch_size):
+        end = min(start + batch_size, n)
+        text = cache['logits_text'][start:end].float().to(device)
+        ids = cache['logits_id'][start:end].float().to(device)
+        labels = cache['labels'][start:end].long().to(device)
+        residual = id_confidence_residual(ids, temperature)
+        text_rank, id_rank = rank_positions(text), rank_positions(ids)
+        text_prob, id_prob = F.softmax(text, -1), F.softmax(ids, -1)
+        text_ranks[start:end] = target_ranks_for_scores(text, labels).cpu()
+        fixed_ranks[start:end] = target_ranks_for_scores(
+            text + float(cache['alpha0']) * residual, labels
+        ).cpu()
+        for config_index, config in enumerate(configs):
+            gate = policy_gate(config, text_rank, id_rank, text_prob, id_prob)
+            scores = text + float(config['max_alpha']) * gate * residual
+            all_ranks[start:end, config_index] = target_ranks_for_scores(scores, labels).cpu()
+    return all_ranks, text_ranks, fixed_ranks
 
 
 def gate_statistics(cache, config, batch_size, device):
@@ -166,8 +185,10 @@ def main():
     train, valid = load_cache(args.train_cache), load_cache(args.valid_cache)
     if set(train['user_ids'].tolist()).intersection(valid['user_ids'].tolist()):
         raise ValueError('Calibration train/valid users overlap.')
-    if train['dataset'] != 'Industrial_and_Scientific' or valid['dataset'] != train['dataset']:
-        raise ValueError('This diagnostic is restricted to Industrial_and_Scientific.')
+    if valid['dataset'] != train['dataset']:
+        raise ValueError('Calibration train/valid datasets differ.')
+    if train['split'] != 'calibration_train' or valid['split'] != 'calibration_valid':
+        raise ValueError('Candidate policy analysis requires calibration_train/calibration_valid caches.')
 
     item_num = train['logits_text'].size(1)
     popularity = load_item_popularity(args.data_root, train['dataset'], item_num)

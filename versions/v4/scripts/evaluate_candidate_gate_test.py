@@ -39,7 +39,7 @@ def write_markdown(path, result):
         ('Oracle-Alpha', result['test_oracle']['oracle_alpha']),
     ]
     lines = [
-        '# Industrial v4 Final Test', '',
+        f"# {result['dataset']} v4 Final Test", '',
         '| Method | NDCG@5 | NDCG@10 | Recall@5 | Recall@10 | MRR |',
         '|---|---:|---:|---:|---:|---:|',
     ]
@@ -72,8 +72,8 @@ def main():
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
     cache = load_cache(args.test_cache)
-    if cache['dataset'] != 'Industrial_and_Scientific' or cache['split'] != 'test':
-        raise ValueError('Final evaluation requires the Industrial test cache.')
+    if cache['split'] != 'test':
+        raise ValueError('Final evaluation requires a test cache.')
     model, normalizer, checkpoint = load_candidate_gate_checkpoint(args.candidate_checkpoint)
     if checkpoint['dataset'] != cache['dataset']:
         raise ValueError('Candidate checkpoint and test cache datasets differ.')

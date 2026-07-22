@@ -122,8 +122,8 @@ def main():
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
     cache = load_cache(args.train_cache)
-    if cache['dataset'] != 'Industrial_and_Scientific' or cache['split'] != 'calibration_train':
-        raise ValueError('Candidate gate training requires Industrial calibration_train only.')
+    if cache['split'] != 'calibration_train':
+        raise ValueError('Candidate gate training requires a calibration_train cache.')
     train_indices, dev_indices = split_gate_users(cache, seed=args.seed)
     if set(cache['user_ids'][train_indices].tolist()).intersection(cache['user_ids'][dev_indices].tolist()):
         raise RuntimeError('gate_train and gate_dev users overlap.')

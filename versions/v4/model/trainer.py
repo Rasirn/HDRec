@@ -55,7 +55,7 @@ class Trainer:
                 input_ids, attention_mask, _, labels = batch["user_seq_data"]
                 # context_mask = batch["context_mask"]
                 item_input_ids, item_seq_mask, item_target_ids = batch["item_data"]
-                self.model.module.set_adapter("lora_text")
+                self.accelerator.unwrap_model(self.model).set_adapter("lora_text")
                 scores, _ = self.model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -63,7 +63,7 @@ class Trainer:
                         )
                 if self.args.use_gate:
                     if self.args.alternating_learning > 0:
-                        self.model.module.set_adapter("lora_cf")
+                        self.accelerator.unwrap_model(self.model).set_adapter("lora_cf")
                     scores1, _ = self.model(
                             input_ids=item_input_ids,
                             attention_mask=item_seq_mask,
@@ -237,7 +237,7 @@ class Trainer:
                         loss_fct = nn.CrossEntropyLoss()
                         # text
                         input_ids, attention_mask, target_ids, labels = batch["user_seq_data"]
-                        self.model.module.set_adapter("lora_text")
+                        self.accelerator.unwrap_model(self.model).set_adapter("lora_text")
                         text_logits, pool_target_ids = self.model(
                                 input_ids=input_ids,
                                 attention_mask=attention_mask,
@@ -262,7 +262,7 @@ class Trainer:
                         if cl_step != self.args.alternating_learning - 1:
                             # cf
                             item_input_ids, item_seq_mask, item_target_ids = batch["item_data"]
-                            self.model.module.set_adapter("lora_cf")
+                            self.accelerator.unwrap_model(self.model).set_adapter("lora_cf")
                             cf_logits, pool_item_target_ids = self.model(
                                 input_ids=item_input_ids,
                                 attention_mask=item_seq_mask,
