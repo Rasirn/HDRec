@@ -6,6 +6,8 @@ def get_args():
     # debug
     parser.add_argument('--debug', action='store_true', help='Enable debug mode for more verbose output.')
     parser.add_argument('--suffix', type=str, default='default', help='Suffix for the output directory.')
+    parser.add_argument('--profile', type=str, default='src_original', help='Named v1 execution profile recorded in run_manifest.json.')
+    parser.add_argument('--run_manifest_path', type=str, default=None, help='Optional run manifest output path.')
     
     # data and log path
     parser.add_argument('--checkpoint_dir', type=str, default=None, required=False, help='Directory to save checkpoints.')

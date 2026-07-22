@@ -12,6 +12,7 @@ from common import load_cache, save_json
 from paired_bootstrap import paired_bootstrap
 from ranking_metrics import ranking_metrics, target_ranks
 from utility_label import fixed_text_fusion
+from provenance import sha256, validate_provenance
 
 
 def sample_dcg10(ranks):
@@ -65,7 +66,10 @@ def main():
     parser.add_argument('--oracle_json', required=True)
     parser.add_argument('--data_root', default='./data')
     parser.add_argument('--output_json', required=True)
-    parser.add_argument('--output_markdown', required=True)
+    parser.add_argument('--output_markdown', default=None)
+    parser.add_argument('--diagnostics_json', default=None)
+    parser.add_argument('--official-only', action='store_true')
+    parser.add_argument('--official_log', default=None)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--candidate_chunk', type=int, default=1024)
     parser.add_argument('--seed', type=int, default=42)
@@ -75,6 +79,9 @@ def main():
     if cache['split'] != 'test':
         raise ValueError('Final evaluation requires a test cache.')
     model, normalizer, checkpoint = load_candidate_gate_checkpoint(args.candidate_checkpoint)
+    if 'v1_provenance' not in cache or 'v1_provenance' not in checkpoint:
+        raise ValueError('Official Candidate Gate evaluation requires v1 provenance in cache and gate checkpoint.')
+    validate_provenance(cache['v1_provenance'], checkpoint['v1_provenance'])
     if checkpoint['dataset'] != cache['dataset']:
         raise ValueError('Candidate checkpoint and test cache datasets differ.')
     if checkpoint['feature_schema'] != CANDIDATE_FEATURE_SCHEMA_VERSION or checkpoint['feature_names'] != CANDIDATE_FEATURE_NAMES:
@@ -119,8 +126,44 @@ def main():
         'bootstrap_v4_vs_text': paired_bootstrap(gate_dcg - text_dcg, seed=args.seed),
         'bootstrap_v4_vs_v1_fixed': paired_bootstrap(gate_dcg - sample_dcg10(fixed_ranks), seed=args.seed),
     }
+    if args.official_only:
+        official = {
+            'method': 'v4_candidate_gate', 'uses_candidate_gate': True,
+            'dataset': cache['dataset'], 'num_samples': labels.numel(),
+            'metrics': gate_metrics,
+            'candidate_gate_checkpoint': str(Path(args.candidate_checkpoint).resolve()),
+            'candidate_gate_checkpoint_sha256': sha256(args.candidate_checkpoint),
+            'v1_provenance': cache['v1_provenance'],
+            'feature_schema': checkpoint['feature_schema'],
+            'gate_config': {
+                key: checkpoint[key] for key in ('architecture', 'hidden_dim', 'dropout', 'max_alpha', 'selected_epoch') if key in checkpoint
+            },
+        }
+        save_json(args.output_json, official)
+        if not args.diagnostics_json:
+            raise ValueError('--official-only requires --diagnostics_json.')
+        save_json(args.diagnostics_json, result)
+        lines = ['==Test set (v4 Candidate Gate)==']
+        for name in ('NDCG@5', 'NDCG@10', 'Recall@5', 'Recall@10', 'MRR'):
+            lines.append(f'{name}: {gate_metrics[name]:.6f}')
+        lines.extend([
+            f'dataset: {cache["dataset"]}',
+            f'v1 checkpoint: {cache["v1_provenance"]["v1_checkpoint_path"]}',
+            f'v1 checkpoint sha256: {cache["v1_provenance"]["v1_checkpoint_sha256"]}',
+            f'v1 profile: {cache["v1_provenance"]["v1_profile"]}',
+            f'candidate gate checkpoint: {Path(args.candidate_checkpoint).resolve()}',
+            f'candidate gate sha256: {sha256(args.candidate_checkpoint)}',
+            f'feature schema: {checkpoint["feature_schema"]}',
+        ])
+        text = '\n'.join(lines) + '\n'
+        if args.official_log:
+            Path(args.official_log).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.official_log).write_text(text)
+        print(text, end='')
+        return
     save_json(args.output_json, result)
-    write_markdown(args.output_markdown, result)
+    if args.output_markdown:
+        write_markdown(args.output_markdown, result)
     print(result)
     print(f'Saved final test report: {args.output_json}')
 

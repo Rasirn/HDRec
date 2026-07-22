@@ -44,9 +44,9 @@ def default_temperature(dataset):
     return DATASET_DEFAULTS.get(dataset, DATASET_DEFAULTS['Industrial_and_Scientific'])['fusion_temperature']
 
 
-def make_v1_args(cli_args, item_num=None, user_num=None):
+def make_v1_args(cli_args, item_num=None, user_num=None, manifest_args=None):
     defaults = DATASET_DEFAULTS.get(cli_args.dataset, DATASET_DEFAULTS['Industrial_and_Scientific'])
-    return SimpleNamespace(
+    values = dict(
         debug=cli_args.debug,
         suffix='v4_cache',
         checkpoint_dir=None,
@@ -113,6 +113,17 @@ def make_v1_args(cli_args, item_num=None, user_num=None):
         logger=SimpleLogger(),
         device=torch.device(cli_args.device),
     )
+    # New v1 runs persist their resolved profile arguments.  Reconstructing the
+    # frozen model with those values avoids treating a src_original checkpoint
+    # as the old legacy-tuned architecture/configuration.
+    for key, value in (manifest_args or {}).items():
+        if key in values and key not in {'device', 'logger', 'data_root', 'dataset', 'model_name_or_path'}:
+            values[key] = value
+    values['data_root'] = cli_args.data_root
+    values['dataset'] = cli_args.dataset
+    values['model_name_or_path'] = cli_args.model_name_or_path
+    values['device'] = torch.device(cli_args.device)
+    return SimpleNamespace(**values)
 
 
 class SimpleLogger:
@@ -162,11 +173,16 @@ def infer_checkpoint_path(dataset, model_name_or_path, suffix='v1'):
 def load_frozen_v1(cli_args):
     set_seed(cli_args.seed)
     train, val, test, item_meta_dict, item2id = load_data(SimpleNamespace(data_root=cli_args.data_root, dataset=cli_args.dataset))
-    args = make_v1_args(cli_args, item_num=len(item2id), user_num=len(train))
-    model, _, tokenizer = get_model_config_tokenizer(args)
     checkpoint_path = Path(cli_args.checkpoint_path) if cli_args.checkpoint_path else infer_checkpoint_path(cli_args.dataset, cli_args.model_name_or_path)
     if not checkpoint_path.exists():
         raise FileNotFoundError(f'v1 checkpoint not found: {checkpoint_path}')
+    manifest_path = checkpoint_path.parent / 'run_manifest.json'
+    manifest_args = None
+    if manifest_path.exists():
+        with manifest_path.open() as handle:
+            manifest_args = json.load(handle).get('final_args', {})
+    args = make_v1_args(cli_args, item_num=len(item2id), user_num=len(train), manifest_args=manifest_args)
+    model, _, tokenizer = get_model_config_tokenizer(args)
     state = torch.load(checkpoint_path, map_location='cpu')
     if not isinstance(state, dict):
         raise TypeError(f'v1 checkpoint must contain a state dict: {checkpoint_path}')

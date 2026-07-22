@@ -19,6 +19,9 @@ class Trainer:
         
         if self.accelerator.is_local_main_process:
             self.writer = SummaryWriter(f'{args.output_path}')
+        self.best_epoch = None
+        self.best_validation_metric = None
+        self.last_test_metrics = None
 
     def save_checkpoints(self, save_path):
         unwrapped_model = self.accelerator.unwrap_model(self.model)
@@ -302,6 +305,7 @@ class Trainer:
             save_path = os.path.join(self.args.output_path, 'pytorch_model.bin')
             self.load_checkpoints(load_path=save_path)
         test_metrics = self.predict(self.args.num_train_epochs, data_loader=self.test_loader)
+        self.last_test_metrics = test_metrics
         self.logger.info(f'==Test set==: {test_metrics}\n')
         if self.accelerator.is_local_main_process:
             self.writer.add_scalar('test/NDCG@10', test_metrics['NDCG@10'])
@@ -340,6 +344,8 @@ class Trainer:
 
                 if dev_metrics[self.args.valid_metric] > best_target:
                     best_target = dev_metrics[self.args.valid_metric]
+                    self.best_epoch = epoch + 1
+                    self.best_validation_metric = best_target
                     patient = self.args.patient
                     self.logger.info('Save the best model.')
                     save_path = os.path.join(self.args.output_path, 'pytorch_model.bin')

@@ -34,6 +34,11 @@ def setup_accelerator(args):
 
 def main():
     args = get_args()
+    if not args.allow_legacy_fixed_fusion:
+        raise RuntimeError(
+            'This is a legacy fixed-fusion entrypoint and does not run v4 Candidate Gate. '
+            'Use versions/v4/run.sh with --v1_checkpoint.'
+        )
     set_seed(args.seed)
 
     # Set up Accelerator

@@ -14,6 +14,7 @@ from data.data import Collator, RecDataset, ItemDataset
 from data.data_utils import load_data, tokenize_items
 from models.model_utils import get_model_config_tokenizer, print_trainable_parameters
 from trainer import Trainer
+from run_manifest import update_final_manifest, write_initial_manifest
 
 # Encapsulate Accelerator setup
 def setup_accelerator(args):
@@ -44,6 +45,9 @@ def main():
     arg_dict = vars(args)
     args.logger = logger
     args.device = accelerator.device
+    manifest = write_initial_manifest(args)
+    logger.info(f'v1 profile: {args.profile}')
+    logger.info(f'run manifest: {manifest}')
 
     # Prepare datasets
     train, val, test, item_meta_dict, item2id = load_data(args)
@@ -108,6 +112,7 @@ def main():
     # Initialize trainer and start training
     trainer = Trainer(args, accelerator, model, train_loader, val_loader, test_loader)
     trainer.train()
+    update_final_manifest(args, trainer.best_epoch, trainer.best_validation_metric, trainer.last_test_metrics)
     
     logger.info('Finish.')
 

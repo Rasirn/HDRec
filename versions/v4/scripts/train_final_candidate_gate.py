@@ -7,6 +7,7 @@ import torch
 from analyze_candidate_policies import load_item_popularity
 from common import load_cache, save_json
 from train_candidate_gate import retrain_selected
+from provenance import validate_provenance
 
 
 def merge_calibration_caches(train, valid):
@@ -55,6 +56,9 @@ def main():
     merged = merge_calibration_caches(train, valid)
     with open(args.training_summary) as handle:
         summary = json.load(handle)
+    if 'v1_provenance' not in merged or 'v1_provenance' not in summary:
+        raise ValueError('Final Candidate Gate requires v1 provenance in caches and training summary.')
+    validate_provenance(merged['v1_provenance'], summary['v1_provenance'])
     architecture = summary['selected_architecture_on_gate_dev']
     selected = summary['architectures'][architecture]['selected']
     popularity = load_item_popularity(
@@ -75,6 +79,7 @@ def main():
         'calibration_valid_path': str(Path(args.calibration_valid).resolve()),
         'output_checkpoint': str(Path(args.output_checkpoint).resolve()),
         'parameter_count': payload['parameter_count'], 'seed': args.seed,
+        'v1_provenance': merged['v1_provenance'],
     }
     save_json(args.output_manifest, manifest)
     print(manifest)

@@ -98,6 +98,7 @@ def retrain_selected(cache, all_indices, popularity, architecture, selected, out
         'selected_epoch': int(selected['epoch']), 'train_losses': losses,
         'selection_split': 'gate_dev within calibration_train',
         'source_checkpoint': cache['checkpoint_path'],
+        'v1_provenance': cache['v1_provenance'],
         'parameter_count': model.parameter_count,
     })
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +125,8 @@ def main():
     cache = load_cache(args.train_cache)
     if cache['split'] != 'calibration_train':
         raise ValueError('Candidate gate training requires a calibration_train cache.')
+    if 'v1_provenance' not in cache:
+        raise ValueError('Candidate gate training requires v1 checkpoint provenance in the cache.')
     train_indices, dev_indices = split_gate_users(cache, seed=args.seed)
     if set(cache['user_ids'][train_indices].tolist()).intersection(cache['user_ids'][dev_indices].tolist()):
         raise RuntimeError('gate_train and gate_dev users overlap.')
@@ -169,6 +172,7 @@ def main():
         'architectures': architectures,
         'selected_architecture_on_gate_dev': selected_architecture,
         'checkpoints': checkpoints,
+        'v1_provenance': cache['v1_provenance'],
     }
     save_json(args.summary_json, summary)
     print({

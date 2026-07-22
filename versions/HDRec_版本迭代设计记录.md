@@ -694,3 +694,11 @@ conda run -n hdrec python versions/v4/scripts/evaluate_v4.py \
 ```
 
 注意：上面的 `train_cache` 当前示例使用 valid 作为 calibration；正式实验不能用 test 训练或拟合标准化。若后续构造独立 calibration split，应优先使用独立 split。
+
+## v1 协议与 v4 正式结果约定（2026-07-22）
+
+- v1 基线默认 profile 为 `src_original`，严格对齐外层 `src/parameters.py`；旧数据集专用调优配置仅以 `legacy_tuned` 名义保留，不能再作为默认基线。
+- v1 每次训练必须保存 `run_manifest.json`，记录最终参数、数据/模型 SHA256、环境、Git 状态、checkpoint 选择与 test 指标。
+- v4 的唯一正式定义为：冻结 v1 checkpoint 后训练 Candidate-Level Reliability Gate。`versions/v4/run.sh` 不再训练独立 LLM/LoRA 主模型。
+- v4 正式结果只读取 `v4_candidate_metrics.json` 中 `method=v4_candidate_gate`、`uses_candidate_gate=true` 的 Candidate Gate 指标；Oracle-Alpha 仅为诊断上界，固定 fusion 仅为对比基线。
+- 旧 `versions/v4/model/main.py` fixed-fusion 日志标记为 `legacy_v1_fixed_mislabeled_as_v4`，不得用于 v4 Candidate Gate 正式对比。

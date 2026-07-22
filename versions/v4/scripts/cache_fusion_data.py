@@ -15,6 +15,7 @@ from utility_label import (
     utility_statistics,
     utility_values,
 )
+from provenance import checkpoint_provenance
 
 
 def history_for_user(dataset, user_id, split):
@@ -35,6 +36,7 @@ def main():
         return
 
     v1_args, model, tokenizer, data_tuple = load_frozen_v1(args)
+    provenance = checkpoint_provenance(v1_args.loaded_checkpoint_path, args.dataset)
     loader, dataset = build_loader(v1_args, tokenizer, data_tuple, args.split)
     train, _, _, _ = data_tuple
     popularity = item_popularity_from_train(train, v1_args.item_num)
@@ -129,6 +131,7 @@ def main():
         'split': args.split,
         'seed': args.seed,
         'checkpoint_path': v1_args.loaded_checkpoint_path,
+        'v1_provenance': provenance,
         'alpha0': float(v1_args.fusion_alpha),
         'utility_alpha0': float(v1_args.fusion_alpha),
         'fusion_temperature': float(v1_args.fusion_temperature),

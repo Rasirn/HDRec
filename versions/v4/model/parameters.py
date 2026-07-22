@@ -5,6 +5,7 @@ def get_args():
     parser = ArgumentParser()
     # debug
     parser.add_argument('--debug', action='store_true', help='Enable debug mode for more verbose output.')
+    parser.add_argument('--allow_legacy_fixed_fusion', action='store_true', help='Permit the deprecated fixed-fusion v4 model entrypoint.')
     parser.add_argument('--suffix', type=str, default='default', help='Suffix for the output directory.')
     
     # data and log path
